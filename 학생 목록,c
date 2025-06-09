@@ -1,0 +1,36 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_STUDENTS 100
+
+typedef struct {
+    char name[50];
+    int score;
+} Student;
+
+Student students[MAX_STUDENTS];
+int student_count = 0;
+
+void add_student(char *name, int score) {
+    strcpy(students[student_count].name, name);
+    students[student_count].score = score;
+    student_count++;
+}
+
+void display_students() {
+    printf("학생 목록:\n");
+    for (int i = 0; i < student_count; i++) {
+        printf("%s - 성적: %d\n", students[i].name, students[i].score);
+    }
+}
+
+int main() {
+    add_student("김철수", 85);
+    add_student("이영희", 92);
+    add_student("박민수", 78);
+    
+    display_students();
+    
+    return 0;
+}

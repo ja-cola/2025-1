@@ -1,0 +1,155 @@
+from dataclasses import dataclass
+
+@dataclass
+class DecodeResult:
+    binary: str
+    opcode_hex: str
+    flags: dict
+    addr_mode_str: str
+    disp_or_addr: int
+    TA: int
+    regA_desc: str
+    fmt: int
+
+def hex_to_bits(h: str) -> str:
+    h = h.strip().replace(" ", "").lower().removeprefix("0x")
+    return bin(int(h, 16))[2:].zfill(len(h) * 4)
+
+def sign_extend(val: int, bits: int) -> int:
+    sign = 1 << (bits - 1)
+    return (val & (sign - 1)) - (val & sign)
+
+def to_int(x: str) -> int:
+    x = x.strip()
+    if x.lower().startswith("0x"):
+        return int(x, 16)
+    return int(x)
+
+def decode_sicxe(hexstr: str, PC: int = 0, BASE: int = 0, X: int = 0, memory: dict | None = None) -> DecodeResult:
+    h = hexstr.strip().replace(" ", "").lower().removeprefix("0x")
+    if len(h) not in (6, 8):
+        raise ValueError("지원 포맷: Format 3(6 hex) 또는 Format 4(8 hex)")
+
+    bits = hex_to_bits(h)
+
+    
+    byte1 = int(h[0:2], 16)
+    opcode6 = byte1 & 0b11111100
+    n_flag = (byte1 >> 1) & 1
+    i_flag = byte1 & 1
+
+    
+    byte2 = int(h[2:4], 16)
+    x_flag = (byte2 >> 5) & 1
+    b_flag = (byte2 >> 4) & 1
+    p_flag = (byte2 >> 3) & 1
+    e_flag = byte2 & 1
+
+    fmt = 4 if (e_flag == 1 and len(h) == 8) else 3
+    if fmt == 3 and len(h) != 6:
+        raise ValueError("e=0인데 길이가 8 hex입니다. 유효하지 않습니다.")
+
+    if fmt == 3:
+        low = int(h[4:6], 16)
+        disp = ((byte2 & 0x0F) << 8) | low  # 12비트
+        disp_or_addr = disp
+        if p_flag:
+            disp_signed = sign_extend(disp, 12)
+            TA = (PC + disp_signed) & 0xFFFFF
+        elif b_flag:
+            TA = (BASE + disp) & 0xFFFFF
+        else:
+            TA = disp
+    else:
+        addr20 = ((byte2 & 0x0F) << 16) | int(h[4:8], 16)
+        disp_or_addr = addr20
+        TA = addr20
+
+  
+    if n_flag and not i_flag:
+        amode = "indirect"
+    elif i_flag and not n_flag:
+        amode = "immediate"
+    else:
+        amode = "simple"
+
+    if x_flag:
+        TA = (TA + X) & 0xFFFFF
+        amode_txt = f"{amode}, +index"
+    else:
+        amode_txt = amode
+
+    
+    regA = "unknown (연산 의미/메모리 상태 필요)"
+    if amode == "immediate":
+        if fmt == 3:
+            imm_u = disp_or_addr
+            imm_s = sign_extend(disp_or_addr, 12)
+            regA = f"immediate #{imm_s} (unsigned {imm_u})"
+        else:
+            regA = f"immediate #{disp_or_addr}"
+    elif memory is not None:
+        try:
+            b0 = memory.get(TA, 0); b1 = memory.get(TA+1, 0); b2 = memory.get(TA+2, 0)
+            word = (b0 << 16) | (b1 << 8) | b2
+            regA = f"mem[TA]=0x{word:06X} ({word})"
+        except Exception:
+            pass
+
+    flags = {"n": n_flag, "i": i_flag, "x": x_flag, "b": b_flag, "p": p_flag, "e": e_flag}
+    return DecodeResult(
+        binary=bits,
+        opcode_hex=f"{opcode6:02X}",
+        flags=flags,
+        addr_mode_str=amode_txt,
+        disp_or_addr=disp_or_addr,
+        TA=TA,
+        regA_desc=regA,
+        fmt=fmt
+    )
+
+
+def print_banner_line(s: str = ""):
+    print(s)
+
+def print_result(hex_in: str, res: DecodeResult, PC: int, BASE: int, X: int):
+    
+    spaced_bin = " ".join(res.binary[i:i+8] for i in range(0, len(res.binary), 8))
+    nixbpe_bits = f"{res.flags['n']}{res.flags['i']}{res.flags['x']}{res.flags['b']}{res.flags['p']}{res.flags['e']}"
+    nixbpe_text = f"n={res.flags['n']} i={res.flags['i']} x={res.flags['x']} b={res.flags['b']} p={res.flags['p']} e={res.flags['e']}"
+
+    print_banner_line()
+    print(f"Hex 입력 : {hex_in}")
+    print(f"Binary   : {spaced_bin}")
+    print(f"Opcode   : {res.opcode_hex}")
+    print(f"nixbpe   : {nixbpe_bits}  ({nixbpe_text})")
+   
+    addr_rel = "PC-relative" if (res.flags['p'] and res.fmt == 3) else ("BASE-relative" if (res.flags['b'] and res.fmt == 3) else "absolute")
+    fmt_text = f"Format {res.fmt}"
+    print(f"Flag bit : SIC/XE, {res.addr_mode_str.capitalize()}, {addr_rel}, {fmt_text}")
+
+    label = "disp/addr"
+    if res.fmt == 3:
+        print(f"{label:10}: {res.disp_or_addr:012b}  (0x{res.disp_or_addr:X})")
+    else:
+        print(f"{label:10}: {res.disp_or_addr:020b}  (0x{res.disp_or_addr:X})")
+
+    print(f"Target Address = 0x{res.disp_or_addr:X}")
+    print(f"TA             = 0x{res.TA:X}")
+
+    print(f"Register A value = {res.regA_desc}")
+    print_banner_line()
+
+
+def main():
+    print_banner_line()
+    
+    hex_in = input("Hex 입력 : ").strip()
+
+    res = decode_sicxe(hex_in, PC=0, BASE=0, X=0, memory=None)
+    print_result(hex_in, res, PC=0, BASE=0, X=0)
+
+if __name__ == "__main__":
+    main()
+
+# 레지스터 A 값을 계산하는 부분은 추가적인 메모리나 다른 값들이 필요해서 조금 더 복잡하지만, 기본적인 기능은 잘 작동하고, 결과가 명확하게 나와서 좋았습니다.  

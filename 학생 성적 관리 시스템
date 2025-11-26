@@ -1,0 +1,37 @@
+#include <stdio.h>
+
+#define MAX_STUDENTS 3
+
+typedef struct {
+    char name[20];
+    int kor, eng, math;
+    double avg;
+} Student;
+
+int main() {
+    Student students[MAX_STUDENTS];
+
+    printf("=== 학생 성적 입력 (%d명) ===\n", MAX_STUDENTS);
+
+    for (int i = 0; i < MAX_STUDENTS; i++) {
+        printf("%d번째 학생 이름: ", i + 1);
+        scanf("%s", students[i].name);
+        printf("국어, 영어, 수학 점수: ");
+        scanf("%d %d %d", &students[i].kor, &students[i].eng, &students[i].math);
+        
+        students[i].avg = (students[i].kor + students[i].eng + students[i].math) / 3.0;
+    }
+
+    printf("\n=== 성적 처리 결과 ===\n");
+    printf("이름\t평균\t합격여부\n");
+    printf("------------------------\n");
+
+    for (int i = 0; i < MAX_STUDENTS; i++) {
+        printf("%s\t%.1f\t%s\n", 
+            students[i].name, 
+            students[i].avg, 
+            (students[i].avg >= 60) ? "합격" : "불합격");
+    }
+
+    return 0;
+}
